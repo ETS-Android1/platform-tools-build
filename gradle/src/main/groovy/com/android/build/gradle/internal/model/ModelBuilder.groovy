@@ -78,6 +78,7 @@ public class ModelBuilder implements ToolingModelBuilder {
 
         SdkParser sdkParser = basePlugin.getLoadedSdkParser()
         List<String> bootClasspath = basePlugin.runtimeJarList
+        List<File> frameworkSource = Collections.emptyList();
         String compileTarget = sdkParser.target.hashString()
 
         //noinspection GroovyVariableNotAssigned
@@ -86,7 +87,9 @@ public class ModelBuilder implements ToolingModelBuilder {
                 project.name,
                 compileTarget,
                 bootClasspath,
+                frameworkSource,
                 cloneSigningConfigs(signingConfigs),
+                basePlugin.unresolvedDependencies,
                 libPlugin != null)
                     .setDefaultConfig(createPFC(basePlugin.defaultConfigData))
 
@@ -176,6 +179,9 @@ public class ModelBuilder implements ToolingModelBuilder {
                 vC.isSigningReady(),
                 signingConfigName,
                 vC.packageName,
+                variantData.sourceGenTask.name,
+                variantData.javaCompileTask.name,
+                variantData.processManifestTask.manifestOutputFile,
                 getGeneratedSourceFolders(variantData),
                 getGeneratedResourceFolders(variantData),
                 variantData.javaCompileTask.destinationDir,

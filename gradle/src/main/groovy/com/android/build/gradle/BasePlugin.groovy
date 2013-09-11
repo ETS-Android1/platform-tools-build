@@ -53,6 +53,7 @@ import com.android.build.gradle.internal.variant.TestedVariantData
 import com.android.build.gradle.tasks.AidlCompile
 import com.android.build.gradle.tasks.Dex
 import com.android.build.gradle.tasks.GenerateBuildConfig
+import com.android.build.gradle.tasks.Lint
 import com.android.build.gradle.tasks.MergeAssets
 import com.android.build.gradle.tasks.MergeResources
 import com.android.build.gradle.tasks.PackageApplication
@@ -67,6 +68,7 @@ import com.android.builder.SdkParser
 import com.android.builder.VariantConfiguration
 import com.android.builder.dependency.JarDependency
 import com.android.builder.dependency.LibraryDependency
+import com.android.builder.model.AndroidProject
 import com.android.builder.model.ProductFlavor
 import com.android.builder.model.SigningConfig
 import com.android.builder.model.SourceProvider
@@ -78,6 +80,7 @@ import com.google.common.collect.ArrayListMultimap
 import com.google.common.collect.Lists
 import com.google.common.collect.Maps
 import com.google.common.collect.Multimap
+import com.google.common.collect.Sets
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Project
@@ -87,11 +90,14 @@ import org.gradle.api.artifacts.ModuleVersionIdentifier
 import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.artifacts.ResolvedArtifact
 import org.gradle.api.artifacts.SelfResolvingDependency
+import org.gradle.api.artifacts.result.DependencyResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.result.ResolvedModuleVersionResult
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 import org.gradle.api.logging.LogLevel
 import org.gradle.api.plugins.JavaBasePlugin
 import org.gradle.api.plugins.JavaPlugin
+import org.gradle.api.specs.Specs
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.internal.reflect.Instantiator
@@ -121,7 +127,7 @@ public abstract class BasePlugin {
     protected final static String DIR_BUNDLES = "bundles";
 
     public static final String GRADLE_MIN_VERSION = "1.6"
-    public static final String[] GRADLE_SUPPORTED_VERSIONS = [ GRADLE_MIN_VERSION, "1.7" ]
+    public static final String[] GRADLE_SUPPORTED_VERSIONS = [ GRADLE_MIN_VERSION, "1.7", "1.8" ]
 
     public static final String INSTALL_GROUP = "Install"
 
@@ -144,13 +150,18 @@ public abstract class BasePlugin {
     private boolean hasCreatedTasks = false
 
     private ProductFlavorData<DefaultProductFlavor> defaultConfigData
+    private final Collection<String> unresolvedDependencies = Sets.newHashSet();
+
     protected DefaultAndroidSourceSet mainSourceSet
     protected DefaultAndroidSourceSet testSourceSet
 
+    protected Task mainPreBuild
     protected Task uninstallAll
     protected Task assembleTest
     protected Task deviceCheck
     protected Task connectedCheck
+    protected Task lint
+    protected Task lintCompile
 
     protected BasePlugin(Instantiator instantiator, ToolingModelBuilderRegistry registry) {
         this.instantiator = instantiator
@@ -191,6 +202,13 @@ public abstract class BasePlugin {
         connectedCheck = project.tasks.create("connectedCheck")
         connectedCheck.description = "Runs all device checks on currently connected devices."
         connectedCheck.group = JavaBasePlugin.VERIFICATION_GROUP
+
+        mainPreBuild = project.tasks.create("preBuild")
+
+        lint = project.tasks.create("lint")
+        lint.description = "Runs lint on all variants."
+        lint.group = JavaBasePlugin.VERIFICATION_GROUP
+        //project.tasks.check.dependsOn lint
 
         project.afterEvaluate {
             createAndroidTasks(false)
@@ -263,6 +281,10 @@ public abstract class BasePlugin {
 
     ProductFlavorData getDefaultConfigData() {
         return defaultConfigData
+    }
+
+    Collection<String> getUnresolvedDependencies() {
+        return unresolvedDependencies
     }
 
     SdkParser getSdkParser() {
@@ -398,6 +420,7 @@ public abstract class BasePlugin {
                 RenderscriptCompile)
         variantData.renderscriptCompileTask = renderscriptTask
 
+        variantData.sourceGenTask.dependsOn renderscriptTask
         renderscriptTask.dependsOn variantData.prepareDependenciesTask
         renderscriptTask.plugin = this
         renderscriptTask.variant = variantData
@@ -485,6 +508,7 @@ public abstract class BasePlugin {
 
         VariantConfiguration variantConfiguration = variantData.variantConfiguration
 
+        variantData.sourceGenTask.dependsOn generateBuildConfigTask
         if (variantConfiguration.type == VariantConfiguration.Type.TEST) {
             // in case of a test project, the manifest is generated so we need to depend
             // on its creation.
@@ -519,6 +543,8 @@ public abstract class BasePlugin {
         def processResources = project.tasks.create("process${variantData.name}Resources",
                 ProcessAndroidResources)
         variantData.processResourcesTask = processResources
+
+        variantData.sourceGenTask.dependsOn processResources
         processResources.dependsOn variantData.processManifestTask, variantData.mergeResourcesTask, variantData.mergeAssetsTask
 
         processResources.plugin = this
@@ -597,6 +623,8 @@ public abstract class BasePlugin {
 
         def compileTask = project.tasks.create("compile${variantData.name}Aidl", AidlCompile)
         variantData.aidlCompileTask = compileTask
+
+        variantData.sourceGenTask.dependsOn compileTask
         variantData.aidlCompileTask.dependsOn variantData.prepareDependenciesTask
 
         compileTask.plugin = this
@@ -617,7 +645,7 @@ public abstract class BasePlugin {
                                      BaseVariantData testedVariantData) {
         def compileTask = project.tasks.create("compile${variantData.name}", JavaCompile)
         variantData.javaCompileTask = compileTask
-        compileTask.dependsOn variantData.processResourcesTask, variantData.generateBuildConfigTask, variantData.aidlCompileTask
+        compileTask.dependsOn variantData.sourceGenTask
 
         VariantConfiguration config = variantData.variantConfiguration
 
@@ -693,7 +721,7 @@ public abstract class BasePlugin {
                     "Tested Variant '${testedVariantData.name}' is not configured to create a signed APK.")
         }
 
-        createPrepareDependenciesTask(variantData)
+        createAnchorTasks(variantData)
 
         // Add a task to process the manifest
         createProcessTestManifestTask(variantData, "manifests")
@@ -733,6 +761,96 @@ public abstract class BasePlugin {
 
         if (assembleTest != null) {
             assembleTest.dependsOn variantData.assembleTask
+        }
+    }
+
+    // TODO - should compile src/lint/java from src/lint/java and jar it into build/lint/lint.jar
+    protected void createLintCompileTask() {
+        lintCompile = project.tasks.create("compileLint", Task)
+        File outputDir = new File("$project.buildDir/lint")
+
+        lintCompile.doFirst{
+            // create the directory for lint output if it does not exist.
+            if (!outputDir.exists()) {
+                boolean mkdirs = outputDir.mkdirs();
+                if (!mkdirs) {
+                    throw new GradleException("Unable to create lint output directory.")
+                }
+            }
+        }
+    }
+
+    protected void createLintTasks() {
+        File configFile = project.file("$project.projectDir/lint.xml")
+
+        // for each variant setup a lint task
+        int count = variantDataList.size()
+        for (int i = 0 ; i < count ; i++) {
+            final BaseVariantData baseVariantData = variantDataList.get(i)
+            String variantName = baseVariantData.computeName()
+            Task lintCheck = project.tasks.create("lint" + variantName, Lint)
+            lintCheck.dependsOn baseVariantData.javaCompileTask, lintCompile
+            lint.dependsOn lintCheck
+
+            String outputName = "$project.buildDir/lint/" + variantName
+            VariantConfiguration config = baseVariantData.variantConfiguration
+            List<LibraryDependency> depList = config.getAllLibraries()
+            List<Set<File>> javaSource = Lists.newArrayList()
+            List<Set<File>> resourceSource = Lists.newArrayList()
+
+            // set the java and res source of this variant's flavors
+            Iterator<SourceProvider> flavorSources = config.flavorSourceSets.iterator()
+            SourceProvider source
+            while (flavorSources.hasNext()) {
+                source = flavorSources.next()
+                javaSource.add(source.javaDirectories)
+                resourceSource.add(source.resDirectories)
+            }
+
+            javaSource.add(config.defaultSourceSet.javaDirectories)
+            if (config.getType() != VariantConfiguration.Type.TEST) {
+                javaSource.add(config.buildTypeSourceSet.javaDirectories)
+            }
+
+            resourceSource.add(config.defaultSourceSet.resDirectories)
+            if (config.getType() != VariantConfiguration.Type.TEST) {
+                resourceSource.add(config.buildTypeSourceSet.resDirectories)
+            }
+            File genRes = baseVariantData.renderscriptCompileTask.getResOutputDir()
+            if (genRes != null) {
+                resourceSource.add(
+                    Collections.singleton(genRes)
+                )
+            }
+
+            lintCheck.doFirst {
+                File compiledLintJar = project.file("$project.buildDir/lint/lint.jar");
+                if (compiledLintJar.exists()) {
+                    lintCheck.addCustomRule(compiledLintJar);
+                }
+                // set custom lint rules from library dependencies
+                for (LibraryDependency dep : depList) {
+                    File depLintJar = dep.getLintJar()
+                    if (depLintJar.exists()) {
+                        lintCheck.addCustomRule(depLintJar)
+                    }
+                }
+
+                // set lint output options
+                lintCheck.setHtmlOutput(project.file(outputName + "Output.html"))
+                lintCheck.setXmlOutput(project.file(outputName + "Output.xml"))
+                lintCheck.setQuiet()
+
+                // set lint enabled checks
+                if (configFile.exists()) {
+                    lintCheck.setConfig(configFile)
+                }
+
+                // set lint project options
+                lintCheck.setSources(javaSource)
+                lintCheck.setClasspath("$project.buildDir/classes/$baseVariantData.dirName")
+                lintCheck.setLintResources(resourceSource)
+            }
         }
     }
 
@@ -1217,16 +1335,15 @@ public abstract class BasePlugin {
         signingReportTask.setGroup("Android")
     }
 
+    protected void createAnchorTasks(@NonNull BaseVariantData variantData) {
+        variantData.preBuildTask = project.tasks.create("pre${variantData.name}Build")
+        variantData.preBuildTask.dependsOn mainPreBuild
 
-    //----------------------------------------------------------------------------------------------
-    //------------------------------ START DEPENDENCY STUFF ----------------------------------------
-    //----------------------------------------------------------------------------------------------
-
-
-    protected void createPrepareDependenciesTask(@NonNull BaseVariantData variantData) {
         def prepareDependenciesTask = project.tasks.create("prepare${variantData.name}Dependencies",
                 PrepareDependenciesTask)
+
         variantData.prepareDependenciesTask = prepareDependenciesTask
+        prepareDependenciesTask.dependsOn variantData.preBuildTask
 
         prepareDependenciesTask.plugin = this
         prepareDependenciesTask.variant = variantData
@@ -1237,19 +1354,28 @@ public abstract class BasePlugin {
         prepareDependenciesTask.addChecker(configurationDependencies.checker)
 
         for (LibraryDependencyImpl lib : configurationDependencies.libraries) {
-            addDependencyToPrepareTask(prepareDependenciesTask, lib)
+            addDependencyToPrepareTask(variantData, prepareDependenciesTask, lib)
         }
+
+        // also create sourceGenTask
+        variantData.sourceGenTask = project.tasks.create("generate${variantData.name}Sources")
     }
 
-    def addDependencyToPrepareTask(PrepareDependenciesTask prepareDependenciesTask,
-                                   LibraryDependencyImpl lib) {
+    //----------------------------------------------------------------------------------------------
+    //------------------------------ START DEPENDENCY STUFF ----------------------------------------
+    //----------------------------------------------------------------------------------------------
+
+    def addDependencyToPrepareTask(@NonNull BaseVariantData variantData,
+                                   @NonNull PrepareDependenciesTask prepareDependenciesTask,
+                                   @NonNull LibraryDependencyImpl lib) {
         def prepareLibTask = prepareTaskMap.get(lib)
         if (prepareLibTask != null) {
             prepareDependenciesTask.dependsOn prepareLibTask
+            prepareLibTask.dependsOn variantData.preBuildTask
         }
 
         for (LibraryDependencyImpl childLib : lib.dependencies) {
-            addDependencyToPrepareTask(prepareDependenciesTask, childLib)
+            addDependencyToPrepareTask(variantData, prepareDependenciesTask, childLib)
         }
     }
 
@@ -1304,14 +1430,23 @@ public abstract class BasePlugin {
 
         variantDeps.checker = new DependencyChecker(variantDeps, logger)
 
+        Set<String> currentUnresolvedDependencies = Sets.newHashSet()
+
         // TODO - defer downloading until required -- This is hard to do as we need the info to build the variant config.
         List<LibraryDependencyImpl> bundles = []
         List<JarDependency> jars = []
         List<JarDependency> localJars = []
         collectArtifacts(compileClasspath, artifacts)
-        compileClasspath.incoming.resolutionResult.root.dependencies.each { ResolvedDependencyResult dep ->
-            addDependency(dep.selected, variantDeps, bundles, jars, modules,
-                    artifacts, reverseMap)
+        def dependencies = compileClasspath.incoming.resolutionResult.root.dependencies
+        dependencies.each { DependencyResult dep ->
+            if (dep instanceof ResolvedDependencyResult) {
+                addDependency(dep.selected, variantDeps, bundles, jars, modules, artifacts, reverseMap)
+            } else if (dep instanceof UnresolvedDependencyResult) {
+                def attempted = dep.attempted;
+                if (attempted != null) {
+                    currentUnresolvedDependencies.add(attempted.toString())
+                }
+            }
         }
 
         // also need to process local jar files, as they are not processed by the
@@ -1331,21 +1466,26 @@ public abstract class BasePlugin {
         // in compile and remove all dependencies already in compile to get package-only jar
         // files.
         Configuration packageClasspath = variantDeps.packageConfiguration
-        Set<File> compileFiles = compileClasspath.files
-        Set<File> packageFiles = packageClasspath.files
 
-        for (File f : packageFiles) {
-            if (compileFiles.contains(f)) {
-                continue
-            }
+        if (currentUnresolvedDependencies.isEmpty()) {
+            Set<File> compileFiles = compileClasspath.files
+            Set<File> packageFiles = packageClasspath.files
 
-            if (f.getName().toLowerCase().endsWith(".jar")) {
-                jars.add(new JarDependency(f, false /*compiled*/, true /*packaged*/))
-            } else {
-                throw new RuntimeException("Package-only dependency '" +
-                        f.absolutePath +
-                        "' is not supported")
+            for (File f : packageFiles) {
+                if (compileFiles.contains(f)) {
+                    continue
+                }
+
+                if (f.getName().toLowerCase().endsWith(".jar")) {
+                    jars.add(new JarDependency(f, false /*compiled*/, true /*packaged*/))
+                } else {
+                    throw new RuntimeException("Package-only dependency '" +
+                            f.absolutePath +
+                            "' is not supported")
+                }
             }
+        } else {
+            unresolvedDependencies.addAll(currentUnresolvedDependencies)
         }
 
         variantDeps.addLibraries(bundles)
@@ -1366,7 +1506,15 @@ public abstract class BasePlugin {
 
     static def collectArtifacts(Configuration configuration, Map<ModuleVersionIdentifier,
                          List<ResolvedArtifact>> artifacts) {
-        configuration.resolvedConfiguration.resolvedArtifacts.each { ResolvedArtifact artifact ->
+        boolean buildModelOnly = Boolean.getBoolean(AndroidProject.BUILD_MODEL_ONLY_SYSTEM_PROPERTY);
+        def allArtifacts
+        if (buildModelOnly) {
+            allArtifacts = configuration.resolvedConfiguration.lenientConfiguration.getArtifacts(Specs.satisfyAll())
+        } else {
+            allArtifacts = configuration.resolvedConfiguration.resolvedArtifacts
+        }
+
+        allArtifacts.each { ResolvedArtifact artifact ->
             def id = artifact.moduleVersion.id
             List<ResolvedArtifact> moduleArtifacts = artifacts[id]
             if (moduleArtifacts == null) {

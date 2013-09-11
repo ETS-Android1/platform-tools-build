@@ -73,12 +73,24 @@ public interface ArtifactInfo {
     String getSourceGenTaskName();
 
     /**
+     * @return the name of the task used to compile Java code.
+     */
+    @NonNull
+    String getJavaCompileTaskName();
+
+    /**
      * Returns the name of the task used to generate the artifact.
      *
      * @return the name of the task.
      */
     @NonNull
     String getAssembleTaskName();
+
+    /**
+     * The generated manifest for this variant's artifact.
+     */
+    @NonNull
+    File getGeneratedManifest();
 
     /**
      * Returns all the source folders that are generated. This is typically folders for the R,

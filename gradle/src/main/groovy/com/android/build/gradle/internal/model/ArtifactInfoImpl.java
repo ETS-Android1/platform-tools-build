@@ -40,6 +40,12 @@ public class ArtifactInfoImpl implements ArtifactInfo, Serializable {
     @NonNull
     private final String packageName;
     @NonNull
+    private final String sourceGenTaskName;
+    @NonNull
+    private final String javaCompileTaskName;
+    @NonNull
+    private final File generatedManifest;
+    @NonNull
     private final List<File> generatedSourceFolders;
     @NonNull
     private final List<File> generatedResourceFolders;
@@ -54,6 +60,9 @@ public class ArtifactInfoImpl implements ArtifactInfo, Serializable {
                                boolean isSigned,
                      @Nullable String signingConfigName,
                      @NonNull  String packageName,
+                     @NonNull  String sourceGenTaskName,
+                     @NonNull  String javaCompileTaskName,
+                     @NonNull  File generatedManifest,
                      @NonNull  List<File> generatedSourceFolders,
                      @NonNull  List<File> generatedResourceFolders,
                      @NonNull  File classesFolder,
@@ -63,6 +72,9 @@ public class ArtifactInfoImpl implements ArtifactInfo, Serializable {
         this.isSigned = isSigned;
         this.signingConfigName = signingConfigName;
         this.packageName = packageName;
+        this.sourceGenTaskName = sourceGenTaskName;
+        this.javaCompileTaskName = javaCompileTaskName;
+        this.generatedManifest = generatedManifest;
         this.generatedSourceFolders = generatedSourceFolders;
         this.generatedResourceFolders = generatedResourceFolders;
         this.classesFolder = classesFolder;
@@ -95,13 +107,25 @@ public class ArtifactInfoImpl implements ArtifactInfo, Serializable {
     @NonNull
     @Override
     public String getSourceGenTaskName() {
-        return "TODO";
+        return sourceGenTaskName;
+    }
+
+    @NonNull
+    @Override
+    public String getJavaCompileTaskName() {
+        return javaCompileTaskName;
     }
 
     @NonNull
     @Override
     public String getAssembleTaskName() {
         return assembleTaskName;
+    }
+
+    @NonNull
+    @Override
+    public File getGeneratedManifest() {
+        return generatedManifest;
     }
 
     @NonNull

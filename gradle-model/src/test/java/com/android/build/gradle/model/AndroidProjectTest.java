@@ -201,6 +201,8 @@ public class AndroidProjectTest extends TestCase {
                 debugMainInfo.getPackageName());
         assertTrue("Debug signed check", debugMainInfo.isSigned());
         assertEquals("Debug signingConfig name", "myConfig", debugMainInfo.getSigningConfigName());
+        assertEquals("Debug sourceGenTask", "generateDebugSources", debugMainInfo.getSourceGenTaskName());
+        assertEquals("Debug javaCompileTask", "compileDebug", debugMainInfo.getJavaCompileTaskName());
 
         // this variant is tested.
         ArtifactInfo debugTestInfo = debugVariant.getTestArtifactInfo();
@@ -210,6 +212,8 @@ public class AndroidProjectTest extends TestCase {
         assertNotNull("Test output file null-check", debugTestInfo.getOutputFile());
         assertTrue("Test signed check", debugTestInfo.isSigned());
         assertEquals("Test signingConfig name", "myConfig", debugTestInfo.getSigningConfigName());
+        assertEquals("Test sourceGenTask", "generateTestSources", debugTestInfo.getSourceGenTaskName());
+        assertEquals("Test javaCompileTask", "compileTest", debugTestInfo.getJavaCompileTaskName());
 
         // release variant, not tested.
         Variant releaseVariant = variants.get("Release");
@@ -221,6 +225,8 @@ public class AndroidProjectTest extends TestCase {
                 relMainInfo.getPackageName());
         assertFalse("Release signed check", relMainInfo.isSigned());
         assertNull("Release signingConfig name", relMainInfo.getSigningConfigName());
+        assertEquals("Release sourceGenTask", "generateReleaseSources", relMainInfo.getSourceGenTaskName());
+        assertEquals("Release javaCompileTask", "compileRelease", relMainInfo.getJavaCompileTaskName());
 
         ArtifactInfo relTestInfo = releaseVariant.getTestArtifactInfo();
         assertNull("Release test info null-check", relTestInfo);
@@ -687,13 +693,19 @@ public class AndroidProjectTest extends TestCase {
         }
 
         void test() {
+            ArtifactInfo artifact = variant.getMainArtifactInfo();
+            assertNotNull("Main Artifact null-check", artifact);
+
             String variantName = variant.getName();
             File build = new File(projectDir,  "build");
             File apk = new File(build, "apk/" + outputFileName);
-            assertEquals(variantName + " output", apk, variant.getMainArtifactInfo().getOutputFile());
+            assertEquals(variantName + " output", apk, artifact.getOutputFile());
 
-            List<File> sourceFolders = variant.getMainArtifactInfo().getGeneratedSourceFolders();
+            List<File> sourceFolders = artifact.getGeneratedSourceFolders();
             assertEquals("Gen src Folder count", 4, sourceFolders.size());
+
+            File manifest = artifact.getGeneratedManifest();
+            assertNotNull(manifest);
         }
     }
 
