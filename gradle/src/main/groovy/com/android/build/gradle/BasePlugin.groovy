@@ -208,7 +208,7 @@ public abstract class BasePlugin {
         lint = project.tasks.create("lint")
         lint.description = "Runs lint on all variants."
         lint.group = JavaBasePlugin.VERIFICATION_GROUP
-        project.tasks.check.dependsOn lint
+        //project.tasks.check.dependsOn lint
 
         project.afterEvaluate {
             createAndroidTasks(false)
