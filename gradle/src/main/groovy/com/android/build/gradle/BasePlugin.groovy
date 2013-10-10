@@ -119,6 +119,7 @@ import static com.android.builder.BuilderConstants.FD_INSTRUMENT_RESULTS
 import static com.android.builder.BuilderConstants.FD_INSTRUMENT_TESTS
 import static com.android.builder.BuilderConstants.FD_REPORTS
 import static com.android.builder.BuilderConstants.INSTRUMENT_TEST
+import static java.io.File.separator
 
 /**
  * Base class for all Android plugins
@@ -235,10 +236,15 @@ public abstract class BasePlugin {
         }
 
         if (!foundMatch) {
+            File file = new File("gradle" + separator + "wrapper" + separator +
+                    "gradle-wrapper.properties");
             throw new BuildException(
-                    String.format(
-                            "Gradle version %s is required. Current version is %s",
-                            GRADLE_MIN_VERSION, project.getGradle().gradleVersion), null);
+                String.format(
+                    "Gradle version %s is required. Current version is %s. " +
+                    "If using the gradle wrapper, try editing the distributionUrl in %s " +
+                    "to gradle-%s-all.zip",
+                    GRADLE_MIN_VERSION, project.getGradle().gradleVersion, file.getAbsolutePath(),
+                    GRADLE_MIN_VERSION), null);
 
         }
     }
