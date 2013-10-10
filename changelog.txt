@@ -1,3 +1,10 @@
+0.6.2
+- Lint now picks up the SDK home from sdk.dir in local.properties
+- Error message shown when using an unsupported version of Gradle now explains how to update the Gradle wrapper
+- Merged resource files no longer place their source markers into the R file as comments
+- Project path can contain '--' (two dashes)
+- Internal changes to improve integration with Android Studio
+
 0.6.1
 
 - Fixed issues with lint task found in 0.6.0
