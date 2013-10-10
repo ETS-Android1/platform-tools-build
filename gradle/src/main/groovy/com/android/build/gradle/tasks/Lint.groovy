@@ -16,6 +16,9 @@
 
 package com.android.build.gradle.tasks
 
+import com.android.annotations.NonNull
+import com.android.annotations.Nullable
+import com.android.build.gradle.BasePlugin
 import com.android.build.gradle.internal.LintGradleClient
 import com.android.tools.lint.HtmlReporter
 import com.android.tools.lint.LintCliFlags
@@ -29,58 +32,41 @@ import org.gradle.api.GradleException
 import org.gradle.api.tasks.TaskAction
 
 public class Lint extends DefaultTask {
+    @NonNull private BasePlugin mPlugin
+    @Nullable private List<File> mCustomRules
+    @Nullable private File mConfigFile
+    @Nullable private File mHtmlOutput
+    @Nullable private File mXmlOutput
+    @Nullable private List<Set<File>> mSourceSets
+    @Nullable private String mClassPath
+    @Nullable private List<Set<File>> mResourceSets
+    private boolean mQuiet
 
-    private LintCliFlags flags = new LintCliFlags()
-    private LintGradleClient client = new LintGradleClient(flags)
-    private IssueRegistry registry = new BuiltinIssueRegistry()
-    private List<File> customRules = new ArrayList<File>()
+    public void setPlugin(@NonNull BasePlugin plugin) {
+        mPlugin = plugin
+    }
 
-    public void addCustomRule(File f) {
-        customRules.add(f)
+    public void addCustomRule(@NonNull File jar) {
+        if (mCustomRules == null) {
+            mCustomRules = new ArrayList<File>()
+        }
+        mCustomRules.add(jar)
     }
 
     public void setQuiet() {
-        flags.setQuiet(true)
+        mQuiet = true
     }
 
-    public void setConfig(File f) {
-        flags.setDefaultConfiguration(client.createConfigurationFromFile(f))
+    public void setConfig(@NonNull File configFile) {
+        mConfigFile = configFile
     }
 
-    public void setHtmlOutput(File output) {
-        output = output.getAbsoluteFile()
-        if (output.exists()) {
-            boolean delete = output.delete()
-            if (!delete) {
-                throw new GradleException("Could not delete old " + output)
-            }
-        }
-        if (output.getParentFile() != null && !output.getParentFile().canWrite()) {
-            throw new GradleException("Cannot write HTML output file " + output)
-        }
-        try {
-            flags.getReporters().add(new HtmlReporter(client, output))
-        } catch (IOException e) {
-            throw new GradleException("HTML invalid argument.")
-        }
+    public void setHtmlOutput(@NonNull File htmlOutput) {
+        mHtmlOutput = htmlOutput
     }
 
-    public void setXmlOutput(File output) {
-        output = output.getAbsoluteFile()
-        if (output.exists()) {
-            boolean delete = output.delete();
-            if (!delete) {
-                throw new GradleException("Could not delete old " + output)
-            }
-        }
-        if (output.getParentFile() != null && !output.getParentFile().canWrite()) {
-            throw new GradleException("Cannot write XML output file " + output)
-        }
-        try {
-            flags.getReporters().add(new XmlReporter(client, output))
-        } catch (IOException e) {
-            throw new GradleException("XML invalid argument.")
-        }
+    public void setXmlOutput(@NonNull File xmlOutput) {
+        mXmlOutput = xmlOutput;
     }
 
     /**
@@ -88,39 +74,17 @@ public class Lint extends DefaultTask {
      *
      * @param sourceSets files to be added to sources.
      */
-    public void setSources(List<Set<File>> sourceSets) {
-        for (Set<File> args : sourceSets) {
-            for (File input : args) {
-                if (input.exists()) {
-                    List<File> sources = flags.getSourcesOverride()
-                    if (sources == null) {
-                        sources = new ArrayList<File>()
-                        flags.setSourcesOverride(sources)
-                    }
-                    sources.add(input)
-                }
-            }
-        }
+    public void setSources(@NonNull List<Set<File>> sourceSets) {
+        mSourceSets = sourceSets
     }
 
     /**
      * Adds all class files in directory specified by paths for lint.
      *
-     * @param paths The absolute path to a directory containing class files
+     * @param paths A set of paths to class files separated with path separators
      */
-    public void setClasspath(String paths) {
-        for (String path : LintUtils.splitPath(paths)) {
-            File input = new File(path);
-            if (!input.exists()) {
-                throw new GradleException("Class path entry " + input + " does not exist.")
-            }
-            List<File> classes = flags.getClassesOverride();
-            if (classes == null) {
-                classes = new ArrayList<File>();
-                flags.setClassesOverride(classes);
-            }
-            classes.add(input);
-        }
+    public void setClasspath(@NonNull String paths) {
+        mClassPath = paths
     }
 
     /**
@@ -128,23 +92,55 @@ public class Lint extends DefaultTask {
      *
      * @param resourceSets files to be added to resources.
      */
-    public void setLintResources(List<Set<File>> resourceSets) {
-        for (Set<File> args : resourceSets) {
-            for (File input : args) {
-                if (input.exists()) {
-                    List<File> resources = flags.getResourcesOverride()
-                    if (resources == null) {
-                        resources = new ArrayList<File>()
-                        flags.setResourcesOverride(resources)
-                    }
-                    resources.add(input)
-                }
-            }
-        }
+    public void setLintResources(@NonNull List<Set<File>> resourceSets) {
+        mResourceSets = resourceSets
     }
 
+    @SuppressWarnings("GroovyUnusedDeclaration")
     @TaskAction
     public void lint() {
+        IssueRegistry registry = new BuiltinIssueRegistry()
+        LintCliFlags flags = new LintCliFlags()
+        LintGradleClient client = new LintGradleClient(flags, mPlugin.getSdkDirectory())
+
+        // Configure Reporters
+
+        if (mHtmlOutput != null) {
+            mHtmlOutput = mHtmlOutput.getAbsoluteFile()
+            if (mHtmlOutput.exists()) {
+                boolean delete = mHtmlOutput.delete()
+                if (!delete) {
+                    throw new GradleException("Could not delete old " + mHtmlOutput)
+                }
+            }
+            if (mHtmlOutput.getParentFile() != null && !mHtmlOutput.getParentFile().canWrite()) {
+                throw new GradleException("Cannot write HTML output file " + mHtmlOutput)
+            }
+            try {
+                flags.getReporters().add(new HtmlReporter(client, mHtmlOutput))
+            } catch (IOException e) {
+                throw new GradleException("HTML invalid argument.", e)
+            }
+        }
+
+        if (mXmlOutput != null) {
+            mXmlOutput = mXmlOutput.getAbsoluteFile()
+            if (mXmlOutput.exists()) {
+                boolean delete = mXmlOutput.delete();
+                if (!delete) {
+                    throw new GradleException("Could not delete old " + mXmlOutput)
+                }
+            }
+            if (mXmlOutput.getParentFile() != null && !mXmlOutput.getParentFile().canWrite()) {
+                throw new GradleException("Cannot write XML output file " + mXmlOutput)
+            }
+            try {
+                flags.getReporters().add(new XmlReporter(client, mXmlOutput))
+            } catch (IOException e) {
+                throw new GradleException("XML invalid argument.", e)
+            }
+        }
+
         List<Reporter> reporters = flags.getReporters()
         if (reporters.isEmpty()) {
             throw new GradleException("No reporter specified.")
@@ -157,12 +153,68 @@ public class Lint extends DefaultTask {
             reporter.setUrlMap(map)
         }
 
-        client.setCustomRules(customRules)
+        // Flags
+
+        if (mQuiet) {
+            flags.setQuiet(true)
+        }
+        if (mConfigFile != null) {
+            flags.setDefaultConfiguration(client.createConfigurationFromFile(mConfigFile))
+        }
+
+        // Flags: sources, resources, classes
+
+        for (Set<File> args : mSourceSets) {
+            for (File input : args) {
+                if (input.exists()) {
+                    List<File> sources = flags.getSourcesOverride()
+                    if (sources == null) {
+                        sources = new ArrayList<File>()
+                        flags.setSourcesOverride(sources)
+                    }
+                    sources.add(input)
+                }
+            }
+        }
+
+        for (String path : LintUtils.splitPath(mClassPath)) {
+            File input = new File(path);
+            if (!input.exists()) {
+                throw new GradleException("Class path entry " + input + " does not exist.")
+            }
+            List<File> classes = flags.getClassesOverride();
+            if (classes == null) {
+                classes = new ArrayList<File>();
+                flags.setClassesOverride(classes);
+            }
+            classes.add(input);
+        }
+
+        for (Set<File> args : mResourceSets) {
+            for (File input : args) {
+                if (input.exists()) {
+                    List<File> resources = flags.getResourcesOverride()
+                    if (resources == null) {
+                        resources = new ArrayList<File>()
+                        flags.setResourcesOverride(resources)
+                    }
+                    resources.add(input)
+                }
+            }
+        }
+
+        // Client setup
+
+        if (mCustomRules != null) {
+            client.setCustomRules(mCustomRules)
+        }
+
+        // Finally perform lint run
 
         try {
             client.run(registry, Arrays.asList(project.projectDir));
         } catch (IOException e) {
-            throw new GradleException("Invalid arguments.")
+            throw new GradleException("Invalid arguments.", e)
         }
     }
 }

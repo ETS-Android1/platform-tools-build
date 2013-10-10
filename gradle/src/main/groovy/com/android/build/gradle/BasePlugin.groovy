@@ -792,6 +792,7 @@ public abstract class BasePlugin {
             Task lintCheck = project.tasks.create("lint" + variantName, Lint)
             lintCheck.dependsOn baseVariantData.javaCompileTask, lintCompile
             lint.dependsOn lintCheck
+            lintCheck.setPlugin(this)
 
             String outputName = "$project.buildDir/lint/" + variantName
             VariantConfiguration config = baseVariantData.variantConfiguration
