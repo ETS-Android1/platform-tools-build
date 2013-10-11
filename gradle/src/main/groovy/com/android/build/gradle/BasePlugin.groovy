@@ -1507,25 +1507,12 @@ public abstract class BasePlugin {
 
     static def collectArtifacts(Configuration configuration, Map<ModuleVersionIdentifier,
                          List<ResolvedArtifact>> artifacts) {
-        // This property indicates how dependencies should be resolved:
-        // 1. null: Resolve dependencies and fail if some dependency cannot be resolved
-        // 2. true: Do not resolve dependencies
-        // 3. false: Resolve dependencies and do not fail if some dependency cannot be resolved
-        // Option #1 is used when building a project either on the command line or from Android Studio.
-        // Option #2 and #3 are used for importing a project into Android Studio.
-        def buildModelOnlyProperty = System.getProperty(AndroidProject.BUILD_MODEL_ONLY_SYSTEM_PROPERTY)
+        boolean buildModelOnly = Boolean.getBoolean(AndroidProject.BUILD_MODEL_ONLY_SYSTEM_PROPERTY);
         def allArtifacts
-        if (buildModelOnlyProperty == null) {
+        if (buildModelOnly) {
+            allArtifacts = configuration.resolvedConfiguration.lenientConfiguration.getArtifacts(Specs.satisfyAll())
+        } else {
             allArtifacts = configuration.resolvedConfiguration.resolvedArtifacts
-        }
-        else {
-            boolean buildModelOnly = Boolean.parseBoolean(buildModelOnlyProperty)
-            if (buildModelOnly) {
-                allArtifacts = Collections.emptySet()
-            }
-            else {
-                allArtifacts = configuration.resolvedConfiguration.lenientConfiguration.getArtifacts(Specs.satisfyAll())
-            }
         }
 
         allArtifacts.each { ResolvedArtifact artifact ->
