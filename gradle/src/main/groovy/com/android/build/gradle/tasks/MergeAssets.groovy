@@ -19,8 +19,8 @@ import com.android.ide.common.res2.AssetMerger
 import com.android.ide.common.res2.AssetSet
 import com.android.ide.common.res2.FileStatus
 import com.android.ide.common.res2.FileValidity
-import com.android.ide.common.res2.MergeConsumer
 import com.android.ide.common.res2.MergedAssetWriter
+import com.android.ide.common.res2.MergingException
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
 
@@ -65,78 +65,81 @@ public class MergeAssets extends IncrementalTask {
         // create a new merger and populate it with the sets.
         AssetMerger merger = new AssetMerger()
 
-        for (AssetSet assetSet : assetSets) {
-            // set needs to be loaded.
-            assetSet.loadFromFiles(plugin.logger)
-            merger.addDataSet(assetSet)
-        }
-
-        // get the merged set and write it down.
-        MergedAssetWriter writer = new MergedAssetWriter(destinationDir)
-
         try {
-            merger.mergeData(writer, false /*doCleanUp*/)
-        } catch (MergeConsumer.ConsumerException e) {
-            merger.cleanBlob(getIncrementalFolder())
-            throw e.getCause()
-        }
+            for (AssetSet assetSet : assetSets) {
+                // set needs to be loaded.
+                assetSet.loadFromFiles(plugin.logger)
+                merger.addDataSet(assetSet)
+            }
 
-        // No exception? Write the known state.
-        merger.writeBlobTo(getIncrementalFolder(), writer)
+            // get the merged set and write it down.
+            MergedAssetWriter writer = new MergedAssetWriter(destinationDir)
+
+            merger.mergeData(writer, false /*doCleanUp*/)
+
+            // No exception? Write the known state.
+            merger.writeBlobTo(getIncrementalFolder(), writer)
+        } catch (MergingException e) {
+            println e.getMessage()
+            merger.cleanBlob(getIncrementalFolder())
+            throw new ResourceException(e.getMessage(), e)
+        }
     }
 
     @Override
     protected void doIncrementalTaskAction(Map<File, FileStatus> changedInputs) {
         // create a merger and load the known state.
         AssetMerger merger = new AssetMerger()
-        if (!merger.loadFromBlob(getIncrementalFolder(), true /*incrementalState*/)) {
-            doFullTaskAction()
-            return
-        }
-
-        // compare the known state to the current sets to detect incompatibility.
-        // This is in case there's a change that's too hard to do incrementally. In this case
-        // we'll simply revert to full build.
-        List<AssetSet> assetSets = getInputAssetSets()
-
-        if (!merger.checkValidUpdate(assetSets)) {
-            project.logger.info("Changed Asset sets: full task run!")
-            doFullTaskAction()
-            return
-        }
-
-        // The incremental process is the following:
-        // Loop on all the changed files, find which ResourceSet it belongs to, then ask
-        // the resource set to update itself with the new file.
-        for (Map.Entry<File, FileStatus> entry : changedInputs.entrySet()) {
-            File changedFile = entry.getKey()
-
-            merger.findDataSetContaining(changedFile, fileValidity)
-            if (fileValidity.status == FileValidity.FileStatus.UNKNOWN_FILE) {
+        try {
+            if (!merger.loadFromBlob(getIncrementalFolder(), true /*incrementalState*/)) {
                 doFullTaskAction()
                 return
-            } else if (fileValidity.status == FileValidity.FileStatus.VALID_FILE) {
-                if (!fileValidity.dataSet.updateWith(
-                        fileValidity.sourceFile, changedFile, entry.getValue(), plugin.logger)) {
-                    project.logger.info(
-                            String.format("Failed to process %s event! Full task run",
-                                    entry.getValue()))
+            }
+
+            // compare the known state to the current sets to detect incompatibility.
+            // This is in case there's a change that's too hard to do incrementally. In this case
+            // we'll simply revert to full build.
+            List<AssetSet> assetSets = getInputAssetSets()
+
+            if (!merger.checkValidUpdate(assetSets)) {
+                project.logger.info("Changed Asset sets: full task run!")
+                doFullTaskAction()
+                return
+            }
+
+            // The incremental process is the following:
+            // Loop on all the changed files, find which ResourceSet it belongs to, then ask
+            // the resource set to update itself with the new file.
+            for (Map.Entry<File, FileStatus> entry : changedInputs.entrySet()) {
+                File changedFile = entry.getKey()
+
+                merger.findDataSetContaining(changedFile, fileValidity)
+                if (fileValidity.status == FileValidity.FileStatus.UNKNOWN_FILE) {
                     doFullTaskAction()
                     return
+                } else if (fileValidity.status == FileValidity.FileStatus.VALID_FILE) {
+                    if (!fileValidity.dataSet.updateWith(
+                            fileValidity.sourceFile, changedFile, entry.getValue(),
+                            plugin.logger)) {
+                        project.logger.info(
+                                String.format("Failed to process %s event! Full task run",
+                                        entry.getValue()))
+                        doFullTaskAction()
+                        return
+                    }
                 }
             }
-        }
 
-        MergedAssetWriter writer = new MergedAssetWriter(getOutputDir())
+            MergedAssetWriter writer = new MergedAssetWriter(getOutputDir())
 
-        try {
             merger.mergeData(writer, false /*doCleanUp*/)
-        } catch (MergeConsumer.ConsumerException e) {
-            merger.cleanBlob(getIncrementalFolder())
-            throw e.getCause()
-        }
 
-        // No exception? Write the known state.
-        merger.writeBlobTo(getIncrementalFolder(), writer)
+            // No exception? Write the known state.
+            merger.writeBlobTo(getIncrementalFolder(), writer)
+        } catch (MergingException e) {
+            println e.getMessage()
+            merger.cleanBlob(getIncrementalFolder())
+            throw new ResourceException(e.getMessage(), e)
+        }
     }
 }

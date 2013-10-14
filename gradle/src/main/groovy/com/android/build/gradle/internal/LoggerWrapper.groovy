@@ -15,6 +15,7 @@
  */
 package com.android.build.gradle.internal
 
+import com.android.ide.common.res2.MergingException
 import com.android.utils.ILogger
 import org.gradle.api.logging.LogLevel
 import org.gradle.api.logging.Logger
@@ -32,6 +33,17 @@ class LoggerWrapper implements ILogger {
 
     @Override
     void error(Throwable throwable, String s, Object... objects) {
+        if (throwable instanceof MergingException) {
+            // MergingExceptions have a known cause: they aren't internal errors, they
+            // are errors in the user's code, so a full exception is not helpful (and
+            // these exceptions should include a pointer to the user's error right in
+            // the message).
+            //
+            // Furthermore, these exceptions are already caught by the MergeResources
+            // and MergeAsset tasks, so don't duplicate the output
+            return
+        }
+
         if (objects != null && objects.length > 0) {
             s = String.format(s, objects)
         }
