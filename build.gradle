@@ -46,7 +46,7 @@ subprojects {
     }
 
     project.ext {
-        baseVersion = '0.6.2'
+        baseVersion = '0.6.3'
     }
 
     task disableTestFailures << {
@@ -62,7 +62,7 @@ subprojects {
     }
 
     group = 'com.android.tools.build'
-    project.ext.baseAndroidVersion = "22.2.0"
+    project.ext.baseAndroidVersion = "22.2.1"
     if (!project.has("release")) {
         project.ext.baseAndroidVersion = project.ext.baseAndroidVersion + "-SNAPSHOT"
     }
