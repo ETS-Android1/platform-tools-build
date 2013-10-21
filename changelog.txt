@@ -1,3 +1,6 @@
+0.6.3
+- Fix dependency issue introduced in 0.6.2
+
 0.6.2
 - Lint now picks up the SDK home from sdk.dir in local.properties
 - Error message shown when using an unsupported version of Gradle now explains how to update the Gradle wrapper
